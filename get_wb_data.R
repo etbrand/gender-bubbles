@@ -84,5 +84,5 @@ bubble_data = bubble_data %>%
   mutate(parity_line = line_column) %>% 
   select(-indicatorDesc)
 
-saveRDS(bubble_data, 'shiny-app/data/bubble_data.rds')
-saveRDS(descriptions, 'shiny-app/data/descriptions.rds')
+saveRDS(bubble_data, 'data/bubble_data.rds')
+saveRDS(descriptions, 'data/descriptions.rds')
