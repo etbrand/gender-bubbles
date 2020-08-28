@@ -1,6 +1,7 @@
 library(wbstats)
 library(dplyr)
 library(tidyr)
+library(jsonlite)
 library(stringr)
 
 # Retrieve gender indicators from the World Bank API
@@ -8,11 +9,9 @@ cache = wb_cache()
 countries = wb_countries()
 indicators = 
   c('SP.POP.TOTL',                                       #Population
-    'SP.DYN.SMAM.FE',          'SP.DYN.SMAM.MA',         #Age at first marriage
     'SL.TLF.CACT.FE.NE.ZS',    'SL.TLF.CACT.MA.NE.ZS',   #Labour force participation
     'SP.DYN.LE00.FE.IN',       'SP.DYN.LE00.MA.IN',      #Life expectancy
     'SL.UEM.TOTL.FE.ZS',       'SL.UEM.TOTL.MA.ZS',      #Unemployment
-    'SH.DTH.INJR.1534.FE.ZS',  'SH.DTH.INJR.1534.MA.ZS', #Injury
     'SP.DYN.IMRT.FE.IN',       'SP.DYN.IMRT.MA.IN')      #Infant mortality     
 gender_data = wb_data(indicator = indicators, country = "countries_only",
                       start_date = 2000, end_date = format(Sys.Date(), "%Y"),
@@ -20,13 +19,45 @@ gender_data = wb_data(indicator = indicators, country = "countries_only",
 
 # Filter by most recent date
 wb_data_latest = gender_data %>%
+  select(-footnote) %>% 
+  filter(complete.cases(value)) %>% 
   group_by(country, indicator_id) %>% 
   filter(date == max(date)) %>% 
   ungroup()
 
+# workaround for indicators missing iso codes
+country_names = unique(wb_data_latest$country)
+indicators_pt2 = 
+  c('SP.DYN.SMAM.FE',          'SP.DYN.SMAM.MA',         #Age at first marriage
+    'SH.DTH.INJR.1534.FE.ZS',  'SH.DTH.INJR.1534.MA.ZS') #Injury
+url_body = 'https://api.worldbank.org/v2/en/country/all/indicator/'
+gender_data_pt2 = NULL
+for (indicator in indicators_pt2){
+  gender_data_pt2 =
+    fromJSON(paste0(url_body, indicator, '?format=json&per_page=20000')) %>% 
+    as.data.frame() %>% 
+    filter(complete.cases(value)
+           & country$value %in% country_names
+           & date >= 2000) %>%
+    group_by(country) %>% 
+    filter(date == max(date)) %>% 
+    ungroup() %>% 
+    bind_rows(gender_data_pt2)
+}
+gender_data_pt2 = gender_data_pt2 %>% 
+  mutate(indicator_id = indicator$id,
+         indicator = indicator$value,
+         iso3c = country$id,
+         country = country$value) %>% 
+  select(indicator_id, indicator, country, iso3c, date, value)
+wb_data_latest$date = as.character(wb_data_latest$date)
+wb_data_latest = bind_rows(wb_data_latest, gender_data_pt2)
+
 # Reshape so male and female are columns
 # If years are different for male and female data, paste together with a slash
-population_latest  = filter(wb_data_latest, indicator_id == 'SP.POP.TOTL')
+population_latest  = wb_data_latest %>% 
+  filter(indicator_id == 'SP.POP.TOTL') %>% 
+  select(iso3c, date, value)
 gender_latest = filter(wb_data_latest, indicator_id != 'SP.POP.TOTL')
 gender_reshape = gender_latest %>% 
   left_join(select(cache$indicators, indicator_id, indicator_desc)) %>% 
@@ -40,7 +71,7 @@ gender_reshape = gender_latest %>%
   mutate(indicator_year
           = ifelse(n_distinct(date) == 1, date, paste0(date, collapse='/'))) %>% 
   group_by(country) %>%
-  filter(n() == length(indicators) - 1) %>% 
+  filter(n() == length(indicators) + length(indicators_pt2) - 1) %>% 
   ungroup() %>% 
   select(-indicator_id, -date) %>%
   spread(Sex, value)
@@ -48,7 +79,6 @@ gender_reshape = gender_latest %>%
 # Join gender data, population data and indicator descriptions;
 # add short names for indicators
 bubble_data = population_latest %>% 
-  select(-indicator_id, -indicator) %>% 
   rename(population_year = date, population = value) %>% 
   right_join(gender_reshape) %>% 
   left_join(select(countries, iso3c, region, income_level)) %>% 
