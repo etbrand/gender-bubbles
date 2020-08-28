@@ -24,7 +24,7 @@ ui = navbarPage('Gender Bubbles',
         ),
         
         # Disable settings button
-        tags$head(tags$style(HTML('a[class='ggvis-dropdown-toggle']{display:none;}'))),
+        tags$head(tags$style(HTML("a[class='ggvis-dropdown-toggle']{display:none;}"))),
         
         # Show plot; add padding column
         column(8, ggvisOutput('plot1')),
